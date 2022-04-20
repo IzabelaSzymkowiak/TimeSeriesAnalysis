@@ -1,0 +1,386 @@
+---
+title: "Szereg czasowy - projekt"
+author: "Izabela Szymkowiak"
+date: "6 02 2022"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+Google Trends jest serwisem gromadzacym informacje na temat glownych zapytan kierowanych do wyszukiwarki Google, w zaleznosci od czasu. Dane, uzyte do projektu dotycza sumy wyszukan slowa "pogoda" w Polsce, w okresie od stycznia 2016 do grudnia 2020. Zrodlo danych: https://trends.google.pl/trends/explore?date=all&geo=PL&q=pogoda
+
+## 0. Wczytanie danych
+
+```{r}
+knitr::opts_chunk$set(fig.width=8, fig.height=4) 
+data <- read.csv("~/pogoda_googleTrends.csv", sep = ',')
+names(data)[1]="data"
+names(data)[2]="zainteresowanie"
+head(data)
+```
+Dane zawieraja dwie kolumny - pierwsza informujaca o dacie zjawiska, oraz druga o sumie wyszukan slowa "pogoda" w wyszukiwarce Google. Poziom agregacji danych to miesiace. 
+W pierwszym etapie przyjrzano sie zbiorowi danych. Sprawdzono wystepowanie brakow oraz przedstawiono podstawowe statystyki.
+```{r}
+sum(is.na(data))
+summary(data)
+```
+Zbior danych nie posiada brakow. Slowo "pogoda" w wyszukiwarce Google w latach 2016-2020 pojawialo sie srednio 45.43 razy miesiecznie.
+
+## 1. Analiza podstawowych wlasnosci szeregu
+```{r}
+pogoda.ts = ts(data$zainteresowanie, start = c(2016, 1), frequency = 12)
+plot(pogoda.ts)
+
+
+```
+Kolejny etap to wizualizacja szeregu czasowego. Na podstawie powyzszego wykresu, mozna zauwazyc za suma wyszukan slowa "pogoda" rosla w okresie 2016-2020. Dokonano identyfikacji skladowych szeregu czasowego - trendu i wahan sezonowych. 
+
+Zbior danych zostal podzielony na zbior uczacy (sty.2016 - gru.2019) oraz testowy (sty.2020 - gru.2020). Na tym etapie zaczeto pracowac na zbiorze uczacym.
+```{r}
+pogoda.ts.ucz = window(pogoda.ts, end = c(2019, 12))
+pogoda.ts.test = window(pogoda.ts, start = c(2020, 1))
+
+length(pogoda.ts.ucz)
+length(pogoda.ts.test)
+```
+Sprawdzono istnienie obserwacji odstajacych.
+```{r message=FALSE, warning=FALSE}
+
+outliers = forecast::tsoutliers(pogoda.ts.ucz)
+outliersIndexes = outliers$index
+data$zainteresowanie[outliersIndexes]
+data[outliersIndexes, ]
+```
+Nie wykryto obecnosci obserwacji odstajacych. 
+
+W celu ograniczenia wplywu zmiennej liczby dni w miesiacach, wykonano korekte kalendarzowa.
+```{r}
+library(forecast)
+monthdays(pogoda.ts.ucz)
+```
+Ze wzgledu na zmienna liczbe dni w miesiacach przeprowadzono korekre kalendarzowa. Ponizszy wykres przedstawia szereg przed i po korekcie kalendarzowej. 
+```{r}
+pogoda.korekta = pogoda.ts.ucz * (365.25 / 12) / forecast::monthdays(pogoda.ts.ucz)
+plot(pogoda.ts.ucz, type ="l", col = "red")
+lines(pogoda.korekta, col="green")
+legend(x = "topleft",          
+       legend = c("przed korekta", "po korekcie"),  
+       lty = c(1, 1),           
+       col = c(2, 3),           
+       lwd = 2) 
+```
+Jako nowy zbior danych (uczacych) przyjeto dane po korekcie kalendarzowej. 
+```{r}
+pogoda.ts = pogoda.korekta
+```
+
+Wykresy sezonowe
+```{r}
+monthplot(pogoda.ts)
+```
+Wykres sezonowy dla kazdego miesiaca przedstawia dane w kolejnych latach. Na podstawie wykresu sezonowego mozna zauwazyc najwieksze zainteresowanie pogoda w miesiacach wakacyjnych (czerwiec-sierpien). Zauwazono takze w wielu miesiacach (m.in Jan, Feb, May) zaiteresowanie w kolejnych latach roslo, tzn. dla danego miesiaca w 2019 bylo ono wieksze niz w 2016. 
+
+
+Wykres sezonowy.
+```{r}
+seasonplot(pogoda.ts, year.labels = TRUE,  col=rainbow(5))
+```
+Powyzszy wykres takze pokazuje rosnace zainteresowanie wyszukiwaniem pogody poprzez Google. Wskazuje to rowniez na trend. O sezonowosci ponownie swiadczy wieksza ilosc wyszukan w miesiacach wakacyjnych. 
+
+Wykres rozrzutu dla wartości opóźnionych
+```{r}
+lag.plot(pogoda.ts, lags = 12, do.lines = F)
+
+```
+Wykres rozrzutu dla wartosci opoznionych to zaleznosc szeregu czasowego od obserwacji opoznionych od 1 do 12. Na podstawie wykresu dla opoznienia lag 12 mozna potwierdzic sezonowosc, natomiast bazujac na opoznieniu lag 1, sklaniac sie do potwierdzenia trendu.
+
+
+Wykres autokorelacji
+```{r}
+Acf(pogoda.ts, lag.max = 60)
+```
+Na podstawie wykresu autokorelacji ACF nalezy zwrocic uwage na pierwsza wyrozniajaca sie pionowa linie - siega ona ponad wartosc 0.8 na osi Y. Oznacza ona silna zaleznosc pomiedzy kazda obserwacja a obserwacja poprzedzajaca. 
+
+Wykres autokorelacji czastkowej
+```{r}
+Pacf(pogoda.ts, lag.max = 60)
+```
+
+## 2. Przeksztalcenia danych
+
+Roznicowanie
+```{r}
+pogoda.diff = diff(pogoda.ts, lag = 12)
+plot(pogoda.diff)
+```
+
+```{r}
+pogoda.diff = diff(pogoda.diff, lag = 1)
+plot(pogoda.diff)
+```
+Roznicowanie zostalo wykonane dwukrotnie: roznicowanie z argumentem lag = 12 w celu usuniecia sezonowosci, natomiast roznicowanie z argumentem lag = 1 w celu usuniecia trendu. Powyzsze dwa wykresy przedstawiaja szereg po roznicowaniu. Ponownie wykonano wykres autokorelacji i wykres autokorelacji czastkowej.
+```{r}
+forecast::Acf(pogoda.diff, lag.max = 60)
+```
+Na podstawie Acf, wybrano model sredniej ruchomej MA(3).
+```{r}
+forecast::Pacf(pogoda.diff, lag.max = 60)
+```
+Na podstawie Pacf wybrano model autoregresji AR(3).
+
+Dekompozycja na podstawie sredniej ruchomej
+```{r}
+pogoda.decom = decompose(pogoda.ts)
+plot(pogoda.decom)
+
+```
+Powyzszy rysunek przedstawia obserwowany szereg czasowy - wykres na samej gorze, a nastepnie jego skladowe. W pierwszej kolenosci trend szeregu, nastepnie skladowa sezonowa oraz na ostatnim wykresie szereg po odjeciu skladowych.
+
+Wykonano wykres autokorelacji i wykres autokorelacji czastkowej dla reszt szeregu po dekompozycji.
+```{r}
+pogoda.decom.res = pogoda.decom$random
+```
+
+```{r}
+Acf(pogoda.decom.res, lag.max = 60)
+```
+Na podstawie Acf, wybrano model sredniej ruchomej MA(12).
+
+```{r}
+Pacf(pogoda.decom.res, lag.max = 60)
+```
+
+Na podstawie Pacf wybrano model autoregresji AR(2).
+
+Dekompozycja na podstawie modelu regresji
+```{r}
+pogoda.tslm = tslm(pogoda.ts ~ trend + season)
+pogoda.tslm.res = pogoda.tslm$residuals
+plot(pogoda.tslm.res)
+
+```
+```{r}
+Acf(pogoda.tslm.res, lag.max = 60)
+```
+Na podstawie Acf, wybrano model sredniej ruchomej MA(1).
+```{r}
+Pacf(pogoda.tslm.res, lag.max = 60)
+```
+Na podstawie Pacf wybrano model autoregresji AR(1).
+
+## 3. Tworzenie modeli oraz ich ocena
+Zestawienie modeli na podstawie Acf i Pacf dla trzech metod przeksztalcania danych:
+a) roznicowanie: ACF - MA(3), PACF - AR(3)
+```{r}
+pogoda.ma.diff = Arima(pogoda.ts, order = c(0,1,3), seasonal = c(0,1,0))
+pogoda.ar.diff = Arima(pogoda.ts, order = c(3,1,0), seasonal = c(0,1,0))
+```
+
+b) dekompozycja na podstawie sredniej ruchomej: ACF - MA(12), PACF - AR(2)
+```{r}
+pogoda.ma.decompose = Arima(pogoda.ts, order = c(0,1,12), seasonal = c(0,1,0))
+pogoda.ar.decompose = Arima(pogoda.ts, order = c(2,1,0), seasonal = c(0,1,0))
+```
+c)  dekompozycja na podstawie modelu regresji: ACF - MA(1), PACF - AR(1)
+```{r}
+pogoda.ma.tlsm = Arima(pogoda.ts, order = c(0,1,1), seasonal = c(0,1,0))
+pogoda.ar.tlsm = Arima(pogoda.ts, order = c(1,1,0), seasonal = c(0,1,0))
+```
+
+Dla kazdej z metod (roznicowanie, dekompozycja na podstawie sredniej ruchomej, dekompozycja na podstawie modelu regresji) stworzono dodatkowo nastepujace modele:
+Model szeregu czasowego z d=1 oraz D=1 z istotnymi wspolczynnikami modelu 
+```{r}
+fixedModels = function(model){
+coefs = model$coef
+coefs.sd = sqrt(diag(model$var.coef))
+ind = abs(coefs/(1.96*coefs.sd))
+signif = which(ind >= 1)
+temp.fixed = numeric(length(coefs.sd))
+temp.fixed[signif] = NA
+return(temp.fixed)
+}
+
+diff.ma.fixed = fixedModels(pogoda.ma.diff)
+pogoda.ma.diff.fixed = Arima(pogoda.ts, order = c(0,1,3), seasonal = c(0,1,0),
+                             fixed = diff.ma.fixed)
+diff.ar.fixed = fixedModels(pogoda.ar.diff)
+pogoda.ar.diff.fixed = Arima(pogoda.ts, order = c(3,1,0), seasonal = c(0,1,0),
+                             fixed = diff.ma.fixed)
+
+decompose.ma.fixed = fixedModels(pogoda.ma.decompose)
+pogoda.ma.decompose.fixed = Arima(pogoda.ts, order = c(0,1,12), seasonal = c(0,1,0),
+                                  fixed = decompose.ma.fixed)
+decompose.ar.fixed = fixedModels(pogoda.ar.decompose)
+pogoda.ar.decompose.fixed = Arima(pogoda.ts, order = c(2,1,0), seasonal = c(0,1,0),
+                                  fixed = decompose.ar.fixed)
+
+tlsm.ma.fixed = fixedModels(pogoda.ma.tlsm)
+pogoda.ma.tlsm.fixed = Arima(pogoda.ts, order = c(0,1,1), seasonal = c(0,1,0),
+                             fixed = tlsm.ma.fixed)
+tlsm.ar.fixed = fixedModels(pogoda.ar.tlsm)
+pogoda.ar.tlsm.fixed = Arima(pogoda.ts, order = c(1,1,0), seasonal = c(0,1,0),
+                             fixed = tlsm.ar.fixed)
+
+```
+Model dla szeregu zmodyfikowanego przez przeklsztalcenia (d=0, D=0)
+```{r}
+pogoda.ma.diff.modified = Arima(pogoda.diff, order = c(0,0,3),
+                                seasonal = c(0,0,0))
+pogoda.ar.diff.modified = Arima(pogoda.diff, order = c(3,0,0),
+                                seasonal = c(0,0,0))
+
+pogoda.ma.decompose.modified = Arima(pogoda.decom.res, order = c(0,0,12),
+                                     seasonal = c(0,0,0))
+pogoda.ar.decompose.modified = Arima(pogoda.decom.res, order = c(2,0,0), 
+                                     seasonal = c(0,0,0))
+
+pogoda.ma.tlsm.modified = Arima(pogoda.tslm.res, order = c(0,0,1),
+                                seasonal = c(0,0,0))
+pogoda.ar.tlsm.modified = Arima(pogoda.tslm.res, order = c(1,0,0),
+                                seasonal = c(0,0,0))
+
+```
+Model dla szeregu zmodyfikowany przeksztalceniami z istotnymi wspolczynnikami modelu
+```{r}
+diff.ma.fixed.modified = fixedModels(pogoda.ma.diff.modified)
+pogoda.ma.diff.fixed.modified = Arima(pogoda.diff, order = c(0,0,3),
+                             seasonal = c(0,0,0), fixed = diff.ma.fixed.modified)
+diff.ar.fixed = fixedModels(pogoda.ar.diff.modified)
+pogoda.ar.diff.fixed = Arima(pogoda.diff, order = c(3,0,0),
+                             seasonal = c(0,0,0), fixed = diff.ma.fixed.modified)
+
+decompose.ma.fixed.modified = fixedModels(pogoda.ma.decompose.modified)
+pogoda.ma.decompose.fixed.modified = Arima(pogoda.decom.res, order = c(0,0,12),
+                             seasonal = c(0,0,0), fixed = decompose.ma.fixed.modified)
+decompose.ar.fixed.modified = fixedModels(pogoda.ar.decompose.modified)
+pogoda.ar.decompose.fixed.modified = Arima(pogoda.decom.res, order = c(2,0,0), 
+                              seasonal = c(0,0,0), fixed = decompose.ar.fixed.modified)
+
+tlsm.ma.fixed.modified = fixedModels(pogoda.ma.tlsm.modified)
+pogoda.ma.tlsm.fixed.modified = Arima(pogoda.tslm.res, order = c(0,0,1), 
+                              seasonal = c(0,0,0), fixed = tlsm.ma.fixed.modified)
+tlsm.ar.fixed.modified = fixedModels(pogoda.ar.tlsm.modified)
+pogoda.ar.tlsm.fixed.modified = Arima(pogoda.tslm.res, order = c(1,0,0), 
+                              seasonal = c(0,0,0), fixed = tlsm.ar.fixed.modified)
+```
+Model auto.arima dla szeregu przeksztalconego
+```{r}
+pogoda.diff.modified.auto = auto.arima(pogoda.diff)
+pogoda.decompose.modified.auto = auto.arima(pogoda.decom.res)
+pogoda.tlsm.modified.auto = auto.arima(pogoda.tslm.res)
+```
+W nastepnym etapie sprawdzono wystepowanie bialego szumu dla reszt modelu - wykonano Acf oraz Pacf dla reszt wszystkich modeli. Ponizej pokazano przykladowe wyniki Acf i Pacf. Analogicznie postapiono z pozotalymi modelami. 
+```{r}
+Acf(pogoda.ar.decompose$residuals)
+Pacf(pogoda.ar.decompose$residuals)
+```
+W nastepujacych modelach nie zaobserwowano bialego szumu, co spowodowalo odrzucenie modeli w dalszej analizie.
+Odrzucone modele: pogoda.ar.decompose,
+pogoda.ar.decompose.fixed.modified, 
+pogoda.ar.decompose.modified, pogoda.ar.tlsm, pogoda.ar.tlsm.fixed,
+pogoda.ar.tlsm.modified, pogoda.ma.decompose.fixed, 
+pogoda.ma.decompose.fixed.modified, pogoda.ma.tlsm, pogoda.ma.tlsm.fixed,
+
+Ocena modeli
+
+Dla pozostalych modeli wykonano ich ocene. W tym celu wyznaczono parametry AIC, AICc, BIC. Posortowano otrzymane wartosci w sposob rosnacy.
+```{r}
+Models = c("pogoda.ar.decompose.fixed", "pogoda.ar.diff", "pogoda.ar.diff.fixed",
+           "pogoda.ar.diff.modified", "pogoda.ar.tlsm.fixed.modified", 
+           "pogoda.ma.decompose",  "pogoda.ma.decompose.modified", 
+           "pogoda.ma.diff", "pogoda.ma.diff.fixed", 
+           "pogoda.ma.diff.fixed.modified", "pogoda.ma.diff.modified", 
+           "pogoda.ma.tlsm.fixed.modified", "pogoda.ma.tlsm.modified", 
+           "pogoda.tlsm.modified.auto",   "pogoda.diff.modified.auto", 
+           "pogoda.decompose.modified.auto")
+```
+
+```{r}
+calculateParameters= function(parameter){
+  df = data.frame(value = numeric(), modelName = character())
+  for (model in Models){
+    df[nrow(df)+1, 1] = eval(parse(text = model))[[parameter]]
+    df[nrow(df), 2] = model
+  }
+  df = df[order(df$value),c(1,2)]
+  return(df)
+}
+
+AIC = calculateParameters("aic")
+AIC
+
+AICc = calculateParameters("aicc")
+AICc
+
+BIC = calculateParameters("bic")
+BIC
+```
+Wybrano 3 najlepiej dopasowane modele z kazdej kategorii. Wszystkie kategorie (AIC, AICc, BIC) jako najlepsze modele pod wzgledem wartosci estymatorow, wskazaly nastepujace modele:
+pogoda.decompose.modified.auto, pogoda.ma.decompose.modified, pogoda.ar.diff.fixed
+
+Kolejnym etapem byla ocena ex post. W tym celu wyznaczono nastepujace parametry:
+MAE – sredni absolutny blad prognozy,
+MSE – sredni kwadratowy blad prognozy,
+RMSE – pierwiastek błędu sredniokwadratowego,
+MPE – sredni względny blad prognozy,
+MAPE – sredni absolutny wzgledny blad prognozy,
+
+Parametry te rowniez powinny byc jak najmniejsze. Dla wszystkich modeli wyznaczono prognoze, a nastepnie wymienione wyzej parametry. Na wykresach zestawiono otrzymane prognozy z rzeczywistymi danymi (kolor czerwony).
+```{r fig.height=8, fig.width=12, message=FALSE, warning=FALSE}
+expostCalculation= function(model){
+  library(forecast)
+  library(caret)
+  library(smooth)
+  library(zoo)
+  df = data.frame(modelName = character(), MAE=numeric(), MSE=numeric(),
+                  RMSE=numeric(), MPE=numeric(), MAPE=numeric())
+  par(mfrow=c(8,2))
+  par(mar=c(0.5,0.5,0.5,0.5))
+  for (model in Models){
+    forecast1 = forecast::forecast(eval(parse(text = model)),
+            h = length(pogoda.ts.test), level = c(99.5))
+    df[nrow(df)+1, 1] = model
+    df[nrow(df), 2] = MAE(forecast1$mean, as.vector(pogoda.ts.test))
+    df[nrow(df), 3] = MSE(forecast1$mean, as.vector(pogoda.ts.test))
+    df[nrow(df), 4] = RMSE(forecast1$mean, as.vector(pogoda.ts.test))
+    df[nrow(df), 5] = MPE(forecast1$mean, as.vector(pogoda.ts.test))
+    df[nrow(df), 6] = MAPE(forecast1$mean, as.vector(pogoda.ts.test))
+    plot(as.yearmon(time(pogoda.ts.test)), pogoda.ts.test, type="o", col="red")
+    par(new = TRUE)
+    plot(as.yearmon(time(pogoda.ts.test)), forecast1$mean, 
+         type="l", col=rainbow(16)[nrow(df)+1], ylab = "", xlab = "", yaxt = "n")
+    title(model)
+  }
+  return(df)
+}
+expostParameters = expostCalculation(Models)
+expostParameters
+```
+## 4. Wybor najlepszych modeli i wnioski
+Na podstawie powyzszej analizy, wybrano nastepujace modele:
+
+### * Model1 = pogoda.ar.decompose.fixed
+### * Model2 = pogoda.ar.diff
+
+Ponizej przedstawiono szereg wraz z prognoza  przy uzyciu wybranych modeli. Dodatkowo kolorem czerownym zaznaczono rzeczywiste wartosci szeregu. 
+```{r}
+forecast_m1 = forecast::forecast(pogoda.ar.decompose.fixed, 
+                                 h = length(pogoda.ts.test), level = 99.5)
+forecast_m2 = forecast::forecast(pogoda.ar.diff, h = 
+                                   length(pogoda.ts.test), level = 99.5)
+
+plot(forecast_m1)
+lines(pogoda.ts.test, col = "red")
+plot(forecast_m2)
+lines(pogoda.ts.test, col = "red")
+```
+
+Podsumowanie
+
+Na podstawie przeprowadzonej analizy wybrano dwa modele dla miesiecznej sumy wyszukan slowa "pogoda" w wyszukiwarce Google. Modele te wybrano w oparciu o niskie oceny AIC, AICc, BIC, oraz niskie wartosci parametrow oceny ex post, a takze po wczesniejszym odrzuceniu modeli dla ktorych reszt nie uzyskano bialego szumu. Wybrane modele to:
+
+### *ARIMA(2,1,0)(0,1,0)[12] - pogoda.ar.decompose.fixed
+
+### *ARIMA(3,1,0)(0,1,0)[12] - pogoda.ar.diff
+
